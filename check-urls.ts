@@ -95,13 +95,17 @@ function toHumanReadableNote(rawError: string, attemptCount?: number): string {
 const REALISTIC_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-/** Default Chrome User Data path so we use your real cookies and logins. Override with BROWSER_USER_DATA_DIR. */
-function getChromeUserDataDir(): string {
+/**
+ * Chrome user data directory for the browser.
+ * - Default: clean profile in project (`.browser-profile`) so the script runs without hanging.
+ * - To use your real Chrome (cookies, logins): set BROWSER_USER_DATA_DIR to your profile path and close Chrome first.
+ *   On Windows: %LOCALAPPDATA%\Google\Chrome\User Data
+ */
+function getChromeUserDataDir(): { dir: string; isRealProfile: boolean } {
   const env = process.env.BROWSER_USER_DATA_DIR;
-  if (env) return path.resolve(env);
-  const localAppData = process.env.LOCALAPPDATA;
-  if (localAppData) return path.join(localAppData, 'Google', 'Chrome', 'User Data');
-  return path.join(process.env.HOME || process.env.USERPROFILE || '', '.chrome-user-data');
+  if (env) return { dir: path.resolve(env), isRealProfile: true };
+  const cleanDir = path.join(process.cwd(), '.browser-profile');
+  return { dir: cleanDir, isRealProfile: false };
 }
 
 /**
@@ -126,6 +130,7 @@ async function checkUrl(
       }
 
       page = await context.newPage();
+      await page.bringToFront(); // so the tab we use is visible (Chrome may have restored other tabs)
 
       // Set timeout for page load
       page.setDefaultTimeout(30000); // 30 seconds
@@ -352,10 +357,14 @@ async function main() {
     process.exit(1);
   }
 
-  // Use your real Chrome profile (cookies, logins) so sites see a normal browser. Close Chrome before running.
-  const userDataDir = getChromeUserDataDir();
-  console.log('\nLaunching Chrome (headed) with profile:', userDataDir);
-  console.log('(If this hangs, close all Chrome windows and try again, or set BROWSER_USER_DATA_DIR to a separate folder.)\n');
+  const { dir: userDataDir, isRealProfile } = getChromeUserDataDir();
+  if (isRealProfile) {
+    console.log('\nLaunching Chrome (headed) with your real profile:', userDataDir);
+    console.log('(Close all Chrome windows first. If it hangs, set BROWSER_USER_DATA_DIR to an empty folder.)\n');
+  } else {
+    console.log('\nLaunching Chrome (headed) with clean profile:', userDataDir);
+    console.log('(To use your real Chrome cookies, set BROWSER_USER_DATA_DIR and close Chrome first.)\n');
+  }
   const launchTimeoutMs = 45_000;
   let context: BrowserContext;
   try {
@@ -384,11 +393,13 @@ async function main() {
     throw err;
   }
 
+  console.log('Chrome launched. Starting URL checks...\n');
+
   // Create concurrency limiter
   const limit = pLimit(concurrency);
 
   // Process URLs with concurrency control
-  console.log(`\nProcessing ${urls.length} URLs with concurrency of ${concurrency}...\n`);
+  console.log(`Processing ${urls.length} URLs with concurrency of ${concurrency}...\n`);
 
   const results: CheckResult[] = [];
   const startTime = Date.now();

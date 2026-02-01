@@ -4,3 +4,4 @@ dist/
 *.csv
 .env
 .DS_Store
+.browser-profile/

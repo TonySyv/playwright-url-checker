@@ -63,19 +63,17 @@ This will:
 - Read URLs from `input.csv` (default)
 - Save results to `output.csv` (default)
 - Use concurrency of 1 (one URL at a time)
-- Open **Chrome in headed mode** using your real Chrome profile (cookies, logins) so sites see a normal browser
+- Open **Chrome in headed mode** using a **clean profile** (`.browser-profile` in the project) so the script runs reliably
 
-**Important:** Close all Chrome windows before running. The script uses your Chrome profile (`%LOCALAPPDATA%\Google\Chrome\User Data` on Windows). Only one process can use that profile at a time. If you see "profile is in use", close Chrome and try again.
-
-To use a **copy** of your profile instead (so you can keep Chrome open), set the env var and run from project root:
+**Using your real Chrome (cookies, logins):** To avoid bot blocks by using your real Chrome profile, **close all Chrome windows**, then from project root:
 
 ```bash
-set BROWSER_USER_DATA_DIR=W:\playwright_Projects\playwright-url-checker\.chrome-profile
+set BROWSER_USER_DATA_DIR=%LOCALAPPDATA%\Google\Chrome\User Data
 npm run build
 npm start
 ```
 
-Use an empty or copied folder; the script will create/use it. Cookies and logins will only be there if you copied your Chrome User Data into it.
+Only one process can use that profile at a time. If the script hangs or says "profile is in use", close Chrome and try again, or leave `BROWSER_USER_DATA_DIR` unset to use the default clean profile.
 
 ### Custom Input/Output Files
 
@@ -128,6 +126,18 @@ https://down-site.com,5xx,2024-01-15T10:30:10.000Z,HTTP 500 after 3 attempts
 - **Content Analysis**: Analyzes page content to detect parked domains, broken pages, etc.
 - **Parked Detection**: Identifies blank pages, hosting provider pages, "for sale" indicators
 - **Broken Detection**: Identifies "under construction", error messages, broken layouts
+
+### Optional: LLM confirmation for parked domains
+When keyword-based logic suggests a page is parked, the script can ask an LLM (OpenAI) to decide from **context** whether the page is actually parked or the keywords are coincidence (e.g. Amazon mentioning "hosting" or "make an offer"). To enable:
+
+1. Set `OPENAI_API_KEY` to your OpenAI API key.
+2. Run as usual; no code changes needed.
+
+If the LLM says the page is a normal site, the URL is marked **ok** instead of Parked. If the LLM says parked or the API is unavailable, the keyword-based result is kept.
+
+- **Model**: `gpt-4o-mini` by default. Override with `OPENAI_MODEL` (e.g. `gpt-4o`).
+- **Disable**: Set `USE_LLM_PARKED=0` to turn off LLM checks even when `OPENAI_API_KEY` is set.
+- **Cost**: One short completion per URL that keyword logic marks as parked; normal URLs are not sent to the API.
 
 ### Concurrency Control
 - Processes 3-5 URLs in parallel (configurable)

@@ -2,6 +2,76 @@ import { Page, Response } from 'playwright';
 
 export type WebsiteStatus = '5xx' | '404' | 'Parked' | 'Broken' | 'ok' | 'Other';
 
+/** Max chars of body text to send to LLM (keep under typical context limits) */
+const LLM_CONTENT_MAX_CHARS = 3000;
+
+/** Call OpenAI to decide from context if the page is actually parked (vs. coincidence of keywords). */
+async function askLLMIsParked(pageSummary: string): Promise<'parked' | 'normal' | 'skip'> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || process.env.USE_LLM_PARKED === '0') return 'skip';
+
+  const prompt = `You are classifying web pages. The following text is from a single web page (title, meta description, and start of body content).
+
+Determine if this page is a PARKED DOMAIN page (domain for sale, domain parking, placeholder "buy this domain" page, parking service) or a NORMAL website (e-commerce, blog, company site, news, etc.). Normal sites may mention "hosting", "for sale", "make an offer" in a product/commercial context—that is NOT parked.
+
+Reply with exactly one line: PARKED or NORMAL, then a brief reason (a few words). Example: "NORMAL - e-commerce product page" or "PARKED - domain for sale landing page".
+
+Page content:
+---
+${pageSummary}
+---`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 80,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return 'skip';
+    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const text = data.choices?.[0]?.message?.content?.trim() || '';
+    const upper = text.toUpperCase();
+    if (upper.startsWith('NORMAL')) return 'normal';
+    if (upper.startsWith('PARKED')) return 'parked';
+    return 'skip';
+  } catch {
+    return 'skip';
+  }
+}
+
+/** Extract title, meta description, and start of body for LLM. */
+async function getPageSummaryForLLM(page: Page): Promise<string> {
+  try {
+    const raw = await page.evaluate((maxLen: number) => {
+      const title = document.title || '';
+      const meta = document.querySelector('meta[name="description"]');
+      const metaDesc = (meta && meta.getAttribute('content')) || '';
+      const bodyText = document.body?.innerText?.trim() || '';
+      const bodySnippet = bodyText.slice(0, maxLen);
+      return { title, metaDesc, bodySnippet };
+    }, LLM_CONTENT_MAX_CHARS);
+    const parts = [
+      raw.title && `Title: ${raw.title}`,
+      raw.metaDesc && `Description: ${raw.metaDesc}`,
+      `Content:\n${raw.bodySnippet}`,
+    ].filter(Boolean);
+    return parts.join('\n\n');
+  } catch {
+    return '';
+  }
+}
+
 export interface StatusResult {
   status: WebsiteStatus;
   notes?: string;
@@ -44,7 +114,8 @@ async function isParkedPage(page: Page): Promise<boolean> {
     const bodyTextLower = bodyText.toLowerCase();
     const titleLower = title.toLowerCase();
 
-    // Common parked page indicators (must see at least one)
+    // Common parked page indicators (must see at least one). Use specific phrases to avoid
+    // false positives on e-commerce (e.g. "make an offer", "hosting" on Amazon).
     const parkedIndicators = [
       'parked',
       'domain for sale',
@@ -62,15 +133,15 @@ async function isParkedPage(page: Page): Promise<boolean> {
       'domain parking service',
       'cashparking',
       'parked by',
-      'hosting',
-      'coming soon',
-      'under construction',
+      'this domain is coming soon',
       'domain is available',
       'register this domain',
       'list your domain',
-      'make an offer',
-      'request price',
-      'available for purchase',
+      'make an offer on this domain',
+      'make an offer for this domain',
+      'request price for this domain',
+      'this domain is available for purchase',
+      'domain available for purchase',
       'domain marketplace',
       'premium domain',
       'undeveloped',
@@ -256,7 +327,17 @@ export async function detectStatus(
     // Check for parked pages (site loads but appears to be parked/placeholder)
     const parked = await isParkedPage(page);
     if (parked) {
-      return { status: 'Parked', notes: 'Website loads fine, Parked domain detected' };
+      // Optional: ask LLM from context to avoid false positives (e.g. Amazon with "hosting")
+      const summary = await getPageSummaryForLLM(page);
+      const llmVerdict = summary ? await askLLMIsParked(summary) : 'skip';
+      if (llmVerdict === 'normal') {
+        // LLM says not parked; treat as ok (keywords were coincidence)
+      } else {
+        return {
+          status: 'Parked',
+          notes: llmVerdict === 'parked' ? 'Parked domain (LLM confirmed)' : 'Website loads fine, Parked domain detected',
+        };
+      }
     }
 
     // Check for broken pages
