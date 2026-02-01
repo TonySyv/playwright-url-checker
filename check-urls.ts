@@ -1,4 +1,4 @@
-import { chromium, Browser, Page, Response } from 'playwright';
+import { chromium, Browser, BrowserContext, Page, Response } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import csv from 'csv-parser';
@@ -91,11 +91,15 @@ function toHumanReadableNote(rawError: string, attemptCount?: number): string {
   return `${prefix}${firstLine.slice(0, maxLen)}…`;
 }
 
+/** Realistic Chrome User-Agent to reduce 403 bot blocks from sites like npm, Stack Overflow, Reddit */
+const REALISTIC_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
 /**
  * Checks a single URL with retry logic for 5xx errors
  */
 async function checkUrl(
-  browser: Browser,
+  context: BrowserContext,
   url: string,
   maxRetries: number = 3
 ): Promise<CheckResult> {
@@ -112,7 +116,7 @@ async function checkUrl(
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
 
-      page = await browser.newPage();
+      page = await context.newPage();
 
       // Set timeout for page load
       page.setDefaultTimeout(30000); // 30 seconds
@@ -339,10 +343,18 @@ async function main() {
     process.exit(1);
   }
 
-  // Launch browser
+  // Launch browser with args that reduce bot detection (sites like npm/Stack Overflow/Reddit often 403 headless)
   console.log('\nLaunching browser...');
   const browser = await chromium.launch({
     headless: true,
+    args: ['--disable-blink-features=AutomationControlled'],
+  });
+
+  // Single context with realistic UA and viewport so we look like a normal browser
+  const context = await browser.newContext({
+    userAgent: REALISTIC_USER_AGENT,
+    viewport: { width: 1920, height: 1080 },
+    locale: 'en-US',
   });
 
   // Create concurrency limiter
@@ -361,7 +373,7 @@ async function main() {
       const total = urls.length;
       console.log(`[${current}/${total}] Checking: ${url}`);
 
-      const result = await checkUrl(browser, url);
+      const result = await checkUrl(context, url);
       results.push(result);
 
       console.log(
@@ -375,7 +387,8 @@ async function main() {
   // Wait for all checks to complete
   await Promise.all(promises);
 
-  // Close browser
+  // Close context and browser
+  await context.close();
   await browser.close();
 
   // Write results to CSV

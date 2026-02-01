@@ -8,6 +8,31 @@ export interface StatusResult {
 }
 
 /**
+ * Returns true if the page has substantial content (not just a small "Forbidden" or error body).
+ * Used to avoid marking sites as Broken when they return 403 to bots but still serve content.
+ */
+async function pageHasSubstantialContent(page: Page): Promise<boolean> {
+  try {
+    const bodyText = await page.textContent('body') || '';
+    const bodyTrim = bodyText.trim();
+    const bodyLower = bodyTrim.toLowerCase();
+
+    // Tiny or generic error pages
+    if (bodyTrim.length < 400) return false;
+    if (bodyLower.includes('access denied') && bodyTrim.length < 800) return false;
+    if (bodyLower.includes('forbidden') && bodyTrim.length < 800 && !bodyLower.includes('stack overflow')) return false;
+    if (bodyLower === 'forbidden' || bodyLower === 'access denied') return false;
+
+    const elementCount = await page.evaluate(() => document.querySelectorAll('*').length);
+    if (elementCount < 15) return false;
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Detects if a page is parked (hosting page, or for sale) by looking for
  * explicit parked/hosting wording. Minimal content alone is not used,
  * since many legitimate sites have minimal content.
@@ -198,6 +223,16 @@ export async function detectStatus(
       // 404 not found
       if (status === 404) {
         return { status: '404', notes: 'HTTP 404' };
+      }
+
+      // 403 Forbidden: many sites (npm, Stack Overflow, Reddit) return 403 to headless/bots
+      // but still serve content. If the page has substantial content, treat as ok.
+      if (status === 403) {
+        const hasRealContent = await pageHasSubstantialContent(page);
+        if (hasRealContent) {
+          return { status: 'ok', notes: 'HTTP 403 but content loaded (possible bot block)' };
+        }
+        return { status: 'Broken', notes: `HTTP ${status}` };
       }
 
       // Other 4xx errors might be considered broken
