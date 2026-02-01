@@ -1,0 +1,26 @@
+{
+  "name": "url-status-checker",
+  "version": "1.0.0",
+  "description": "Check ~2000 URLs with US VPN to determine website status",
+  "main": "dist/check-urls.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/check-urls.js",
+    "check": "tsc && node dist/check-urls.js"
+  },
+  "keywords": ["playwright", "url-checker", "website-status"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.40.0",
+    "csv-parser": "^3.0.0",
+    "csv-writer": "^1.6.0",
+    "p-limit": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/csv-parser": "^1.2.3",
+    "@types/csv-writer": "^1.1.9",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3"
+  }
+}
