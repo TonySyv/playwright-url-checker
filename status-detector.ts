@@ -8,7 +8,9 @@ export interface StatusResult {
 }
 
 /**
- * Detects if a page is parked (blank, hosting page, or for sale)
+ * Detects if a page is parked (hosting page, or for sale) by looking for
+ * explicit parked/hosting wording. Minimal content alone is not used,
+ * since many legitimate sites have minimal content.
  */
 async function isParkedPage(page: Page): Promise<boolean> {
   try {
@@ -17,87 +19,93 @@ async function isParkedPage(page: Page): Promise<boolean> {
     const bodyTextLower = bodyText.toLowerCase();
     const titleLower = title.toLowerCase();
 
-    // Check for blank/minimal content
-    const textLength = bodyText.trim().length;
-    if (textLength < 100) {
-      return true;
-    }
-
-    // Common parked page indicators
+    // Common parked page indicators (must see at least one)
     const parkedIndicators = [
       'parked',
       'domain for sale',
       'this domain may be for sale',
+      'this domain is for sale',
+      'domain is for sale',
       'buy this domain',
+      'buy domain',
+      'sell this domain',
       'domain name registration',
       'domain parking',
       'this domain is parked',
+      'this page is parked',
+      'parking page',
+      'domain parking service',
+      'cashparking',
+      'parked by',
       'hosting',
       'coming soon',
       'under construction',
       'domain is available',
       'register this domain',
+      'list your domain',
+      'make an offer',
+      'request price',
+      'available for purchase',
+      'domain marketplace',
+      'premium domain',
+      'undeveloped',
+      'put a for sale sign',
+      'for sale sign on your domain',
       'godaddy',
       'namecheap',
       'sedo',
+      'sedoparking',
       'dan.com',
       'afternic',
       'hugedomains',
-      'parking page',
-      'domain parking service',
-      'this page is parked',
+      'flippa',
+      'brandbucket',
+      'escrow.com',
+      'uniregistry',
+      'epik.com',
     ];
 
-    // Check title and body for parked indicators
+    let hasParkedKeyword = false;
     for (const indicator of parkedIndicators) {
       if (titleLower.includes(indicator) || bodyTextLower.includes(indicator)) {
-        return true;
+        hasParkedKeyword = true;
+        break;
       }
     }
 
-    // Check for common hosting provider pages
-    const hostingProviders = [
-      'cpanel',
-      'plesk',
-      'default page',
-      'apache',
-      'nginx',
-      'welcome to',
-      'it works!',
-      'test page',
-    ];
-
-    for (const provider of hostingProviders) {
-      if (titleLower.includes(provider) || bodyTextLower.includes(provider)) {
-        return true;
-      }
-    }
-
-    // Check if page is mostly empty or has minimal content
-    const visibleText = await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore - This code runs in browser context where document exists
-      const walker = (document as any).createTreeWalker(
-        (document as any).body,
-        // @ts-ignore
-        (NodeFilter as any).SHOW_TEXT,
-        null
-      );
-      let text = '';
-      let node: any;
-      while ((node = walker.nextNode())) {
-        if (node.textContent) {
-          text += node.textContent.trim() + ' ';
+    // Common hosting provider / default server pages
+    if (!hasParkedKeyword) {
+      const hostingProviders = [
+        'cpanel',
+        'plesk',
+        'powered by cpanel',
+        'powered by plesk',
+        'default page',
+        'default website',
+        'apache',
+        'apache2',
+        'nginx',
+        'welcome to nginx',
+        'welcome to apache',
+        'welcome to',
+        'it works!',
+        'test page',
+        'test page for',
+        'ubuntu default',
+        'centos default',
+        'no web site is configured',
+        'index of /',
+        'directory listing',
+      ];
+      for (const provider of hostingProviders) {
+        if (titleLower.includes(provider) || bodyTextLower.includes(provider)) {
+          hasParkedKeyword = true;
+          break;
         }
       }
-      return text.trim();
-    });
-
-    if (visibleText.length < 50) {
-      return true;
     }
 
-    return false;
+    return hasParkedKeyword;
   } catch (error) {
     return false;
   }
@@ -210,10 +218,10 @@ export async function detectStatus(
       // Continue with analysis even if wait fails
     }
 
-    // Check for parked pages
+    // Check for parked pages (site loads but appears to be parked/placeholder)
     const parked = await isParkedPage(page);
     if (parked) {
-      return { status: 'Parked', notes: 'Parked domain detected' };
+      return { status: 'Parked', notes: 'Website loads fine, Parked domain detected' };
     }
 
     // Check for broken pages

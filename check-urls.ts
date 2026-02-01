@@ -46,6 +46,52 @@ function normalizeUrl(domain: string): string {
 }
 
 /**
+ * Turns a raw Playwright/browser error into a short, human-readable note for the CSV.
+ */
+function toHumanReadableNote(rawError: string, attemptCount?: number): string {
+  // Use only the first line; strip "Call log:" and everything after
+  const firstLine = rawError.split(/\r?\n/)[0].trim();
+  const prefix = attemptCount != null ? `After ${attemptCount} attempts: ` : '';
+
+  // Map known network/error codes to short phrases
+  if (firstLine.includes('net::ERR_EMPTY_RESPONSE')) {
+    return `${prefix}Server closed connection without sending data`;
+  }
+  if (firstLine.includes('net::ERR_CONNECTION_REFUSED')) {
+    return `${prefix}Connection refused`;
+  }
+  if (firstLine.includes('net::ERR_NAME_NOT_RESOLVED') || firstLine.includes('ERR_NAME_NOT_RESOLVED')) {
+    return `${prefix}Domain could not be resolved`;
+  }
+  if (firstLine.includes('net::ERR_CONNECTION_RESET')) {
+    return `${prefix}Connection was reset`;
+  }
+  if (firstLine.includes('net::ERR_CONNECTION_TIMED_OUT') || firstLine.includes('ERR_CONNECTION_TIMED_OUT')) {
+    return `${prefix}Connection timed out`;
+  }
+  if (firstLine.includes('net::ERR_SSL_') || firstLine.includes('ERR_CERT_')) {
+    return `${prefix}SSL or certificate error`;
+  }
+  if (firstLine.includes('Navigation timeout') || firstLine.includes('timeout') && firstLine.includes('30000')) {
+    return `${prefix}Page load timed out`;
+  }
+  if (firstLine.includes('timeout')) {
+    return `${prefix}Request timed out`;
+  }
+  if (firstLine.includes('net::')) {
+    // Other net:: errors: show a short generic message plus the code if it's brief
+    const match = firstLine.match(/net::(ERR_[A-Z_]+)/);
+    const code = match ? match[1].replace(/_/g, ' ') : 'network error';
+    return `${prefix}${code}`;
+  }
+
+  // Fallback: use first line but cap length
+  const maxLen = 120;
+  if (firstLine.length <= maxLen) return `${prefix}${firstLine}`;
+  return `${prefix}${firstLine.slice(0, maxLen)}…`;
+}
+
+/**
  * Checks a single URL with retry logic for 5xx errors
  */
 async function checkUrl(
@@ -165,7 +211,7 @@ async function checkUrl(
           return {
             domain: url,
             status: '5xx',
-            notes: `Network error/timeout after ${attempt + 1} attempts: ${errorMessage}`,
+            notes: toHumanReadableNote(errorMessage, attempt + 1),
             error: errorMessage,
           };
         }
@@ -174,7 +220,7 @@ async function checkUrl(
         return {
           domain: url,
           status: 'Other',
-          notes: `Error: ${errorMessage}`,
+          notes: toHumanReadableNote(errorMessage, attempt + 1),
           error: errorMessage,
         };
       }
@@ -184,10 +230,11 @@ async function checkUrl(
   }
 
   // If we exhausted all retries and still have an error, return 5xx
+  const finalError = lastError?.message || 'Unknown error';
   return {
     domain: url,
     status: '5xx',
-    notes: `Failed after ${maxRetries + 1} attempts: ${lastError?.message || 'Unknown error'}`,
+    notes: toHumanReadableNote(finalError, maxRetries + 1),
     error: lastError?.message,
   };
 }

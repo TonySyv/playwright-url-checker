@@ -29,12 +29,23 @@ npx playwright install chromium
 
 Your input CSV file should have a column named `Domain` (case-insensitive). The script also accepts `domain`, `URL`, or `url` as column names.
 
-Example `input.csv`:
+Example `input.csv` (see also `input.csv.example` for a smoke-test set):
+
+- **ok**: `example.com`, `https://example.org`, `www.example.net`, and most real sites.
+- **404**: `https://httpstat.us/404` (returns HTTP 404).
+- **5xx**: `https://httpstat.us/500`, `https://httpstat.us/503` (returns HTTP 5xx).
+- **Broken** (4xx): `https://httpstat.us/403`, `https://httpstat.us/401`.
+- **Parked**: domain marketplaces/sellers (e.g. afternic.com, sedo.com, dan.com, flippa.com, hugedomains.com) and any page with explicit parked/for-sale wording.
+
 ```csv
 Domain
 example.com
 https://example.org
 www.example.net
+https://httpstat.us/404
+https://httpstat.us/500
+https://httpstat.us/403
+https://httpstat.us/200
 ```
 
 ## Usage
