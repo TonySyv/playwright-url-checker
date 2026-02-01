@@ -1,6 +1,6 @@
 # URL Status Checker
 
-A Playwright-based script that checks ~2000 URLs with US VPN to determine website status. The script categorizes websites into: `5xx`, `404`, `Parked`, `Broken`, `ok`, or `Other`.
+A Playwright-based script that checks any number of URLs to determine website status. The script categorizes websites into: `5xx`, `404`, `Parked`, `Broken`, `ok`, or `Other`.
 
 ## Status Categories
 
@@ -14,7 +14,6 @@ A Playwright-based script that checks ~2000 URLs with US VPN to determine websit
 ## Prerequisites
 
 1. **Node.js** (v18 or higher)
-2. **US VPN** - Make sure your VPN is ON and connected to a US server before running the script
 3. **Input CSV file** with a "Domain" column containing the URLs to check
 
 ## Installation
@@ -126,15 +125,13 @@ For ~2000 URLs:
 
 ## Important Notes
 
-1. **VPN Required**: Make sure your US VPN is ON before running the script. The script uses your system's network connection.
+1. **Rate Limiting**: The script uses low concurrency (3-5) to avoid overwhelming servers. If you encounter rate limiting, reduce the concurrency.
 
-2. **Rate Limiting**: The script uses low concurrency (3-5) to avoid overwhelming servers. If you encounter rate limiting, reduce the concurrency.
+2. **Timeouts**: Each page has a 30-second timeout. Slow-loading pages will timeout and be marked appropriately.
 
-3. **Timeouts**: Each page has a 30-second timeout. Slow-loading pages will timeout and be marked appropriately.
+3. **Retries**: 5xx errors and network timeouts are automatically retried up to 3 times with exponential backoff.
 
-4. **Retries**: 5xx errors and network timeouts are automatically retried up to 3 times with exponential backoff.
-
-5. **CSV Import**: After the script completes, you can import the `output.csv` file into Google Sheets for further analysis.
+4. **CSV Import**: After the script completes, you can import the `output.csv` file into Google Sheets for further analysis.
 
 ## Troubleshooting
 
@@ -149,11 +146,6 @@ For ~2000 URLs:
 ### Browser installation issues
 - Run: `npx playwright install chromium`
 - On Windows, you may need to run PowerShell as Administrator
-
-### VPN not working
-- Verify your VPN is connected to a US server
-- Test by visiting a website that shows your IP location
-- The script uses your system's default network connection
 
 ## Project Structure
 
