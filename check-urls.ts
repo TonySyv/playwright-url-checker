@@ -91,9 +91,18 @@ function toHumanReadableNote(rawError: string, attemptCount?: number): string {
   return `${prefix}${firstLine.slice(0, maxLen)}…`;
 }
 
-/** Realistic Chrome User-Agent to reduce 403 bot blocks from sites like npm, Stack Overflow, Reddit */
+/** Realistic Chrome User-Agent when not using a real Chrome profile */
 const REALISTIC_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+/** Default Chrome User Data path so we use your real cookies and logins. Override with BROWSER_USER_DATA_DIR. */
+function getChromeUserDataDir(): string {
+  const env = process.env.BROWSER_USER_DATA_DIR;
+  if (env) return path.resolve(env);
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData) return path.join(localAppData, 'Google', 'Chrome', 'User Data');
+  return path.join(process.env.HOME || process.env.USERPROFILE || '', '.chrome-user-data');
+}
 
 /**
  * Checks a single URL with retry logic for 5xx errors
@@ -311,7 +320,7 @@ async function writeResultsToCsv(
 async function main() {
   const inputFile = process.argv[2] || 'input.csv';
   const outputFile = process.argv[3] || 'output.csv';
-  const concurrency = parseInt(process.argv[4] || '4', 10); // Default to 4 (between 3-5)
+  const concurrency = parseInt(process.argv[4] || '1', 10); // Default to 1 (one at a time)
 
   console.log('='.repeat(60));
   console.log('URL Status Checker');
@@ -343,19 +352,37 @@ async function main() {
     process.exit(1);
   }
 
-  // Launch browser with args that reduce bot detection (sites like npm/Stack Overflow/Reddit often 403 headless)
-  console.log('\nLaunching browser...');
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--disable-blink-features=AutomationControlled'],
-  });
-
-  // Single context with realistic UA and viewport so we look like a normal browser
-  const context = await browser.newContext({
-    userAgent: REALISTIC_USER_AGENT,
-    viewport: { width: 1920, height: 1080 },
-    locale: 'en-US',
-  });
+  // Use your real Chrome profile (cookies, logins) so sites see a normal browser. Close Chrome before running.
+  const userDataDir = getChromeUserDataDir();
+  console.log('\nLaunching Chrome (headed) with profile:', userDataDir);
+  console.log('(If this hangs, close all Chrome windows and try again, or set BROWSER_USER_DATA_DIR to a separate folder.)\n');
+  const launchTimeoutMs = 45_000;
+  let context: BrowserContext;
+  try {
+    context = await chromium.launchPersistentContext(userDataDir, {
+      headless: false,
+      channel: 'chrome',
+      timeout: launchTimeoutMs,
+      args: ['--disable-blink-features=AutomationControlled'],
+      viewport: { width: 1920, height: 1080 },
+      locale: 'en-US',
+      acceptDownloads: false,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      launchTimeoutMs &&
+      (msg.includes('Timeout') || msg.includes('timeout'))
+    ) {
+      console.error('\nChrome did not start in time. Most often this means your profile is in use.');
+      console.error('  → Close ALL Chrome windows (including background), then run again.');
+      console.error('  → Or use a separate profile: set BROWSER_USER_DATA_DIR to an empty folder path.');
+    } else if (msg.includes('user data directory') || msg.includes('in use') || msg.includes('already running')) {
+      console.error('\nChrome profile is in use. Close all Chrome windows and try again.');
+      console.error('Or set BROWSER_USER_DATA_DIR to a copy of your profile (e.g. a separate folder).');
+    }
+    throw err;
+  }
 
   // Create concurrency limiter
   const limit = pLimit(concurrency);
@@ -387,9 +414,8 @@ async function main() {
   // Wait for all checks to complete
   await Promise.all(promises);
 
-  // Close context and browser
+  // Close context (persistent context owns the browser, so this closes everything)
   await context.close();
-  await browser.close();
 
   // Write results to CSV
   console.log('\nWriting results to CSV...');

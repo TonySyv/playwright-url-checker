@@ -62,7 +62,20 @@ npm start
 This will:
 - Read URLs from `input.csv` (default)
 - Save results to `output.csv` (default)
-- Use concurrency of 4 (3-5 parallel checks)
+- Use concurrency of 1 (one URL at a time)
+- Open **Chrome in headed mode** using your real Chrome profile (cookies, logins) so sites see a normal browser
+
+**Important:** Close all Chrome windows before running. The script uses your Chrome profile (`%LOCALAPPDATA%\Google\Chrome\User Data` on Windows). Only one process can use that profile at a time. If you see "profile is in use", close Chrome and try again.
+
+To use a **copy** of your profile instead (so you can keep Chrome open), set the env var and run from project root:
+
+```bash
+set BROWSER_USER_DATA_DIR=W:\playwright_Projects\playwright-url-checker\.chrome-profile
+npm run build
+npm start
+```
+
+Use an empty or copied folder; the script will create/use it. Cookies and logins will only be there if you copied your Chrome User Data into it.
 
 ### Custom Input/Output Files
 
@@ -78,7 +91,7 @@ npm run build
 node dist/check-urls.js input.csv output.csv 5
 ```
 
-The third parameter sets the number of parallel checks (default: 4, recommended: 3-5).
+The third parameter sets the number of parallel checks (default: 1; use 3–5 for faster runs if desired).
 
 ### One-Command Build and Run
 
@@ -119,7 +132,7 @@ https://down-site.com,5xx,2024-01-15T10:30:10.000Z,HTTP 500 after 3 attempts
 ### Concurrency Control
 - Processes 3-5 URLs in parallel (configurable)
 - Prevents overwhelming the system while maintaining reasonable speed
-- Default: 4 parallel checks
+- Default: 1 parallel check (one at a time)
 
 ### Error Handling
 - Handles malformed URLs gracefully
@@ -130,7 +143,7 @@ https://down-site.com,5xx,2024-01-15T10:30:10.000Z,HTTP 500 after 3 attempts
 ## Performance
 
 For ~2000 URLs:
-- With concurrency of 4: Approximately 8-12 hours (depending on response times)
+- With concurrency of 1: Approximately 8-12 hours (depending on response times); increase concurrency for faster runs
 - Each URL check takes 5-30 seconds (including retries if needed)
 - Progress is displayed in real-time
 
